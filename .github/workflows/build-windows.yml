@@ -1,0 +1,56 @@
+name: build-windows
+
+# 推到 main 或在 Actions 頁面手動按 Run workflow 時，在雲端 Windows 打包 exe
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # 把 exe 推到 build-output 分支用
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Tauri CLI
+        run: npm install
+
+      - name: Build exe (no installer)
+        run: npx tauri build --no-bundle
+
+      - name: Collect output
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item src-tauri/target/release/xiao-claude-pet.exe out/XiaoClaude.exe
+          Get-ChildItem out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XiaoClaude-exe
+          path: out/
+          retention-days: 30
+
+      # 另外把 exe 放到 build-output 分支，方便用 git 下載（不需要登入網頁）
+      - name: Push exe to build-output branch
+        shell: pwsh
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout --orphan build-output
+          git rm -r -q --cached .
+          git add -f out/XiaoClaude.exe
+          git commit -q -m "build from ${{ github.sha }}"
+          git push -f origin build-output

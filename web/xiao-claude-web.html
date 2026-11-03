@@ -1,0 +1,507 @@
+<title>小 Claude 通知站</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one stage card (the pet) on top, controls under it, pin guide below. */
+:root {
+  --bg: #f6f1e9;
+  --surface: #fffaf3;
+  --fg: #2e2620;
+  --muted: #76695d;
+  --line: #e4d8c8;
+  --accent: #d9692b;
+  --accent-soft: #fbe3d2;
+  --ok: #2f8f5b;
+  --ask: #c98a06;
+  --stage-top: #fdf4e6;
+  --stage-bottom: #f1e2cb;
+  --font-display: "Zen Maru Gothic", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --font-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1d1916; --surface: #27211c; --fg: #f3ebe1; --muted: #b3a595; --line: #3d342c;
+    --accent: #f08a4b; --accent-soft: #4a2e1d; --ok: #5cc48b; --ask: #e6b13a;
+    --stage-top: #2f2721; --stage-bottom: #241e19; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1d1916; --surface: #27211c; --fg: #f3ebe1; --muted: #b3a595; --line: #3d342c;
+  --accent: #f08a4b; --accent-soft: #4a2e1d; --ok: #5cc48b; --ask: #e6b13a;
+  --stage-top: #2f2721; --stage-bottom: #241e19; color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-body); font-size: 16px; line-height: 1.6; padding-inline: 16px; padding-block: 20px 40px; }
+.wrap { max-width: 560px; margin: 0 auto; display: grid; gap: 18px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-size: 1.6rem; margin: 0; text-wrap: balance; }
+.conn { font-size: 0.85rem; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot.on { background: var(--ok); }
+.stage { position: relative; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); }
+canvas#pet { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; cursor: pointer; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; }
+button { font: inherit; font-size: 0.95rem; border-radius: 999px; padding: 9px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.note { font-size: 0.9rem; color: var(--muted); margin: 0; }
+.guide { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; }
+.guide h2 { font-family: var(--font-display); font-size: 1.1rem; margin: 0 0 6px; }
+.guide ol { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; }
+kbd { font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; background: var(--bg); }
+.preview { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.preview span { font-size: 0.85rem; color: var(--muted); }
+.preview button { font-size: 0.85rem; padding: 5px 12px; }
+#pipvideo { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>小 Claude 通知站</h1>
+    <span class="conn"><span class="dot" id="dot"></span><span id="connText">連線中…</span></span>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="pet" width="480" height="360" aria-label="Q 版小 Claude，點一下表示已讀"></canvas>
+    <video id="pipvideo" muted playsinline></video>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="pinBtn">📌 置頂小視窗</button>
+    <button id="classBtn" aria-pressed="true">🔕 上課模式（不出聲）</button>
+    <button id="ackBtn">👌 我知道了</button>
+  </div>
+  <p class="note" id="pinNote">按「置頂小視窗」，小 Claude 會變成浮在最上層的小視窗，可以拖到螢幕角落、拉大拉小。</p>
+
+  <section class="guide" id="fallbackGuide" hidden>
+    <h2>這台電腦不能直接置頂？用 Windows 小工具</h2>
+    <ol>
+      <li>到 Microsoft Store 搜尋並安裝「<b>PowerToys</b>」（微軟官方、免費）。</li>
+      <li>在 Chrome 把這個網址拖出成獨立視窗，縮小到適合大小。</li>
+      <li>點一下那個視窗，按 <kbd>Win</kbd> + <kbd>Ctrl</kbd> + <kbd>T</kbd>，它就會固定在最上層（再按一次取消）。</li>
+    </ol>
+  </section>
+
+  <section class="guide">
+    <h2>小 Claude 的表情</h2>
+    <ol style="list-style:none;padding-left:0">
+      <li>😴 <b>休息中</b>：沒有工作在跑。</li>
+      <li>💻 <b>工作中</b>：Claude 正在幫您做事。</li>
+      <li>🎉 <b>做完了</b>：外框閃綠光，回 Claude App 看結果。</li>
+      <li>✋ <b>有問題問您</b>：外框閃黃光，泡泡會寫問題摘要。</li>
+    </ol>
+    <p class="note" style="margin-top:8px">點小 Claude 或按「我知道了」就會停止閃爍。上課模式只閃光不出聲；關掉後會發出輕柔提示音。</p>
+  </section>
+
+  <div class="preview">
+    <span>試看看表情（只在這台電腦預覽）：</span>
+    <button data-demo="idle">休息</button>
+    <button data-demo="working">工作中</button>
+    <button data-demo="done">做完了</button>
+    <button data-demo="ask">提問</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("pet");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+
+  const DEFAULT = { state: "idle", message: "", updatedAt: 0 };
+  let status = { ...DEFAULT };
+  let firstSnapshot = true;
+  let classMode = true;
+  let ackedAt = 0;
+  let audioCtx = null;
+  let t0 = performance.now();
+  let stateStart = performance.now();
+  let confetti = [];
+  let ackFlash = -1e9;
+  let ackDoc = null;
+
+  try { classMode = localStorage.getItem("classMode") !== "off"; } catch (e) {}
+  try { ackedAt = Number(localStorage.getItem("ackedAt") || 0); } catch (e) {}
+
+  const classBtn = document.getElementById("classBtn");
+  function renderClassBtn() {
+    classBtn.setAttribute("aria-pressed", String(classMode));
+    classBtn.textContent = classMode ? "🔕 上課模式（不出聲）" : "🔔 下課模式（有提示音）";
+  }
+  renderClassBtn();
+  classBtn.addEventListener("click", () => {
+    classMode = !classMode;
+    try { localStorage.setItem("classMode", classMode ? "on" : "off"); } catch (e) {}
+    ensureAudio();
+    renderClassBtn();
+    if (!classMode) chime("done");
+  });
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  }
+  function chime(kind) {
+    if (classMode || !audioCtx) return;
+    const notes = kind === "ask" ? [660, 880, 660] : [523, 659, 784];
+    const now = audioCtx.currentTime;
+    notes.forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, now + i * 0.16);
+      g.gain.exponentialRampToValueAtTime(0.18, now + i * 0.16 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.16 + 0.5);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(now + i * 0.16); o.stop(now + i * 0.16 + 0.55);
+    });
+  }
+
+  function needsAttention() {
+    return (status.state === "done" || status.state === "ask") && status.updatedAt > ackedAt;
+  }
+  function ack() {
+    ensureAudio();
+    ackFlash = performance.now();
+    ackedAt = Math.max(ackedAt, status.updatedAt || Date.now());
+    try { localStorage.setItem("ackedAt", String(ackedAt)); } catch (e) {}
+    // Share the "read" mark so every open copy (Chrome, the app) stops flashing together.
+    if (ackDoc) ackDoc.set({ ackedAt }).catch(() => {});
+    draw();
+  }
+  canvas.addEventListener("click", ack);
+  document.getElementById("ackBtn").addEventListener("click", ack);
+
+  function applyStatus(next, fromDemo) {
+    const prev = status.state;
+    status = { ...DEFAULT, ...next };
+    if (prev !== status.state) stateStart = performance.now();
+    if (status.state === "done" && prev !== "done") makeConfetti();
+    if (!firstSnapshot && needsAttention() && (prev !== status.state || fromDemo)) chime(status.state);
+    draw();
+  }
+
+  document.querySelectorAll("[data-demo]").forEach(b => b.addEventListener("click", () => {
+    ensureAudio();
+    const s = b.dataset.demo;
+    const msg = { idle: "", working: "正在組裝地理模型網站", done: "首頁說明卡做好了，請回 App 看看！", ask: "颱風模型的 unit 要填哪一冊？" }[s];
+    firstSnapshot = false;
+    applyStatus({ state: s, message: msg, updatedAt: Date.now() }, true);
+  }));
+
+  // ---------- colors from tokens ----------
+  let C = {};
+  function readTokens() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = n => cs.getPropertyValue(n).trim();
+    C = { top: v("--stage-top"), bottom: v("--stage-bottom"), fg: v("--fg"), muted: v("--muted"),
+          surface: v("--surface"), line: v("--line"), ok: v("--ok"), ask: v("--ask"), accent: v("--accent") };
+  }
+  readTokens();
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readTokens(); draw(); }); } catch (e) {}
+  new MutationObserver(() => { readTokens(); draw(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  // ---------- drawing ----------
+  const ORANGE = "#ec8a46", ORANGE_DK = "#c96a2a", HAT = "#d9c08a", HAT_DK = "#b39860", EYE = "#2b211b";
+
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+
+  function makeConfetti() {
+    const cols = ["#ec8a46", "#3fa7d6", "#59c36a", "#f2c14e", "#e86a92"];
+    confetti = Array.from({ length: 36 }, () => ({
+      x: W / 2 + (Math.random() - 0.5) * 120, y: 200,
+      vx: (Math.random() - 0.5) * 6, vy: -4 - Math.random() * 5,
+      r: Math.random() * Math.PI, c: cols[(Math.random() * cols.length) | 0]
+    }));
+  }
+
+  function wrapText(text, maxW) {
+    const lines = []; let line = "";
+    for (const ch of text) {
+      if (ctx.measureText(line + ch).width > maxW && line) { lines.push(line); line = ch; }
+      else line += ch;
+    }
+    if (line) lines.push(line);
+    if (lines.length > 3) { lines.length = 3; lines[2] = lines[2].slice(0, -1) + "…"; }
+    return lines;
+  }
+
+  function drawGlobe(x, y, r, spin) {
+    ctx.fillStyle = HAT_DK; rr(x - 3, y + r, 6, 14, 2); ctx.fill();
+    rr(x - 16, y + r + 12, 32, 6, 3); ctx.fill();
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = "#3fa7d6"; ctx.fill();
+    ctx.clip();
+    ctx.fillStyle = "#59c36a";
+    const off = (spin * 18) % (r * 4);
+    for (let k = -1; k < 2; k++) {
+      const bx = x - r + off + k * r * 2;
+      ctx.beginPath(); ctx.ellipse(bx, y - r * 0.3, r * 0.45, r * 0.3, 0.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(bx + r * 0.7, y + r * 0.35, r * 0.3, r * 0.4, -0.3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    ctx.strokeStyle = HAT_DK; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r + 3, -2.4, 0.8); ctx.stroke();
+  }
+
+  function drawPet(t) {
+    const s = status.state;
+    const since = (performance.now() - stateStart) / 1000;
+    const cx = W / 2, baseY = 262;
+    let bob = Math.sin(t * 2) * 3, squash = 1 + Math.sin(t * 2) * 0.02;
+    if (s === "done") { const j = Math.abs(Math.sin(t * 5)); bob = -j * 22; squash = 1 + (1 - j) * 0.06; }
+    if (s === "ask") bob = Math.sin(t * 4) * 4;
+    if (s === "working") bob = Math.sin(t * 9) * 1.5;
+    const hop = (performance.now() - ackFlash) / 600;
+    if (hop >= 0 && hop < 1) bob = -Math.sin(hop * Math.PI) * 28;
+    const cy = baseY - 62 + bob;
+
+    // shadow
+    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    ctx.beginPath(); ctx.ellipse(cx, baseY + 4, 58 - Math.abs(bob) * 0.8, 9, 0, 0, Math.PI * 2); ctx.fill();
+
+    // globe prop when idle
+    if (s === "idle") drawGlobe(cx + 112, baseY - 50, 22, t);
+
+    // feet
+    ctx.fillStyle = ORANGE_DK;
+    ctx.beginPath(); ctx.ellipse(cx - 24, baseY - 4 + Math.min(0, bob) * 0.6, 16, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + 24, baseY - 4 + Math.min(0, bob) * 0.6, 16, 9, 0, 0, Math.PI * 2); ctx.fill();
+
+    // arms (behind body edge)
+    ctx.strokeStyle = ORANGE_DK; ctx.lineWidth = 11; ctx.lineCap = "round";
+    const arm = (sx, sy, ex, ey) => { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.fillStyle = ORANGE; ctx.beginPath(); ctx.arc(ex, ey, 8, 0, Math.PI * 2); ctx.fill(); };
+    if (s === "done") {
+      const w = Math.sin(t * 10) * 6;
+      arm(cx - 52, cy + 4, cx - 80, cy - 46 + w); arm(cx + 52, cy + 4, cx + 80, cy - 46 - w);
+    } else if (s === "ask") {
+      const w = Math.sin(t * 6) * 8;
+      arm(cx + 52, cy, cx + 74 + w, cy - 62); arm(cx - 52, cy + 10, cx - 66, cy + 34);
+    } else if (s === "working") {
+      const a = Math.sin(t * 18) * 4, b = Math.cos(t * 18) * 4;
+      arm(cx - 50, cy + 14, cx - 26, cy + 56 + a); arm(cx + 50, cy + 14, cx + 26, cy + 56 + b);
+    } else {
+      arm(cx - 52, cy + 10, cx - 66, cy + 36); arm(cx + 52, cy + 10, cx + 66, cy + 36);
+    }
+
+    // body
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(1 / squash, squash);
+    const g = ctx.createRadialGradient(-18, -22, 10, 0, 0, 66);
+    g.addColorStop(0, "#f7a668"); g.addColorStop(1, ORANGE);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 60, 56, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // face
+    const blinkCycle = (t % 4.2);
+    const blink = s !== "done" && blinkCycle > 4.05;
+    ctx.fillStyle = EYE;
+    const ey = cy - 4, ex = 21;
+    if (s === "done") {
+      ctx.strokeStyle = EYE; ctx.lineWidth = 4;
+      [-ex, ex].forEach(d => { ctx.beginPath(); ctx.arc(cx + d, ey + 4, 8, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); });
+    } else if (blink || (s === "idle" && since > 20 && (t % 9) > 6)) {
+      ctx.strokeStyle = EYE; ctx.lineWidth = 4;
+      [-ex, ex].forEach(d => { ctx.beginPath(); ctx.moveTo(cx + d - 7, ey); ctx.lineTo(cx + d + 7, ey); ctx.stroke(); });
+    } else {
+      const look = s === "working" ? 3 : 0;
+      [-ex, ex].forEach(d => {
+        ctx.fillStyle = EYE; ctx.beginPath(); ctx.ellipse(cx + d, ey + look, 7, 9, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx + d - 2, ey - 3 + look, 2.6, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+    ctx.fillStyle = "rgba(240,110,120,0.45)";
+    ctx.beginPath(); ctx.ellipse(cx - 36, cy + 12, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + 36, cy + 12, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = EYE; ctx.lineWidth = 3;
+    ctx.beginPath();
+    if (s === "done") { ctx.fillStyle = "#7a2e20"; ctx.arc(cx, cy + 14, 9, 0, Math.PI); ctx.fill(); }
+    else if (s === "ask") { ctx.ellipse(cx, cy + 18, 5, 6, 0, 0, Math.PI * 2); ctx.stroke(); }
+    else { ctx.arc(cx, cy + 12, 7, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); }
+
+    // explorer hat
+    const hy = cy - 50;
+    ctx.fillStyle = HAT_DK; ctx.beginPath(); ctx.ellipse(cx, hy + 6, 56, 11, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = HAT; ctx.beginPath(); ctx.ellipse(cx, hy, 36, 26, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = "#7a5a32"; ctx.fillRect(cx - 36, hy - 4, 72, 7);
+    ctx.fillStyle = HAT_DK; ctx.beginPath(); ctx.arc(cx, hy - 26, 4, 0, Math.PI * 2); ctx.fill();
+
+    // laptop when working
+    if (s === "working") {
+      ctx.fillStyle = "#6f7782"; rr(cx - 46, baseY - 16, 92, 8, 3); ctx.fill();
+      ctx.fillStyle = "#8d96a3"; rr(cx - 40, baseY - 58, 80, 44, 5); ctx.fill();
+      ctx.fillStyle = "#cfe6f7"; rr(cx - 34, baseY - 53, 68, 32, 3); ctx.fill();
+      ctx.fillStyle = "#3fa7d6";
+      for (let i = 0; i < 3; i++) { const w = 20 + ((Math.sin(t * 3 + i) + 1) * 18); ctx.fillRect(cx - 28, baseY - 48 + i * 9, w, 4); }
+      // re-draw hands on top of laptop
+      ctx.fillStyle = ORANGE;
+      ctx.beginPath(); ctx.arc(cx - 26, baseY - 18 + Math.sin(t * 18) * 3, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + 26, baseY - 18 + Math.cos(t * 18) * 3, 8, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // sleepy Zs
+    if (s === "idle" && since > 20 && (t % 9) > 6) {
+      ctx.fillStyle = C.muted; ctx.font = "700 20px " + getComputedStyle(document.body).fontFamily;
+      ctx.fillText("z", cx + 58, cy - 46 - ((t * 10) % 12)); ctx.fillText("Z", cx + 72, cy - 66 - ((t * 10) % 12));
+    }
+
+    // ask mark
+    if (s === "ask") {
+      ctx.fillStyle = C.ask; ctx.font = "700 44px Arial, sans-serif";
+      ctx.fillText("?", cx - 98, cy - 34 + Math.sin(t * 4) * 5);
+    }
+  }
+
+  function bubbleText() {
+    const s = status.state;
+    if (performance.now() - ackFlash < 1800) return { title: "收到！", body: "謝謝老師，我知道您看到了" };
+    if (s === "done") return { title: "做完了！", body: status.message || "回 Claude App 看結果吧" };
+    if (s === "ask") return { title: "老師，有問題想問您", body: status.message || "請回 Claude App 回答我" };
+    if (s === "working") return { title: "工作中…", body: status.message || "" };
+    return { title: "休息中", body: "有消息我會叫您" };
+  }
+
+  function timeAgo(ms) {
+    if (!ms) return "";
+    const m = Math.floor((Date.now() - ms) / 60000);
+    if (m < 1) return "剛剛";
+    if (m < 60) return m + " 分鐘前";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + " 小時前";
+    return Math.floor(h / 24) + " 天前";
+  }
+
+  function draw() {
+    const t = (performance.now() - t0) / 1000;
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, C.top || "#fdf4e6"); bg.addColorStop(1, C.bottom || "#f1e2cb");
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    const attn = needsAttention();
+    // confetti
+    if (confetti.length) {
+      confetti.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.18; p.r += 0.2;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-4, -2, 8, 4); ctx.restore(); });
+      confetti = confetti.filter(p => p.y < H + 10);
+    }
+
+    drawPet(t);
+
+    // speech bubble
+    const fam = getComputedStyle(document.body).fontFamily;
+    const { title, body } = bubbleText();
+    ctx.font = "500 19px " + fam;
+    const lines = body ? wrapText(body, 380) : [];
+    const bh = 44 + lines.length * 26;
+    const bx = 24, by = 14, bw = W - 48;
+    ctx.fillStyle = C.surface || "#fff"; ctx.strokeStyle = attn ? (status.state === "done" ? C.ok : C.ask) : (C.line || "#ddd");
+    ctx.lineWidth = attn ? 3 : 1.5;
+    rr(bx, by, bw, bh, 16); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W / 2 - 10, by + bh - 1); ctx.lineTo(W / 2 + 4, by + bh + 14); ctx.lineTo(W / 2 + 14, by + bh - 1);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.surface || "#fff"; ctx.fillRect(W / 2 - 9, by + bh - 3, 22, 4);
+    ctx.fillStyle = status.state === "done" ? C.ok : status.state === "ask" ? C.ask : C.fg;
+    ctx.font = "700 22px " + fam;
+    ctx.fillText(title, bx + 18, by + 31);
+    ctx.fillStyle = C.muted; ctx.font = "400 14px " + fam;
+    const ago = status.updatedAt ? timeAgo(status.updatedAt) : "";
+    if (ago) { const w = ctx.measureText(ago).width; ctx.fillText(ago, bx + bw - 16 - w, by + 30); }
+    ctx.fillStyle = C.fg; ctx.font = "500 19px " + fam;
+    lines.forEach((ln, i) => ctx.fillText(ln, bx + 18, by + 60 + i * 26));
+
+    // attention frame
+    if (attn) {
+      const pulse = (Math.sin(t * 5) + 1) / 2;
+      ctx.strokeStyle = status.state === "done" ? C.ok : C.ask;
+      ctx.globalAlpha = 0.35 + pulse * 0.65; ctx.lineWidth = 10;
+      ctx.strokeRect(5, 5, W - 10, H - 10); ctx.globalAlpha = 1;
+      ctx.fillStyle = C.muted; ctx.font = "400 14px " + fam;
+      const hint = "點我表示已讀"; const w = ctx.measureText(hint).width;
+      ctx.fillText(hint, W - w - 18, H - 16);
+    }
+  }
+
+  // Ticker in a worker so the animation keeps going when this tab is in the background.
+  let ticking = false, gotTick = false;
+  try {
+    const url = URL.createObjectURL(new Blob(["setInterval(()=>postMessage(0),66)"], { type: "text/javascript" }));
+    const w = new Worker(url);
+    w.onmessage = () => { gotTick = true; draw(); };
+    ticking = true;
+  } catch (e) {}
+  if (!ticking) setInterval(draw, 66);
+  // If the worker was blocked silently, fall back to a normal timer so the animation never freezes.
+  else setTimeout(() => { if (!gotTick) setInterval(draw, 66); }, 1500);
+  draw();
+
+  // ---------- pin (always-on-top window) ----------
+  const pinBtn = document.getElementById("pinBtn");
+  const video = document.getElementById("pipvideo");
+  const stage = document.getElementById("stage");
+  const guide = document.getElementById("fallbackGuide");
+  const pinNote = document.getElementById("pinNote");
+  let docPip = null;
+
+  async function tryDocPip() {
+    if (!("documentPictureInPicture" in window)) return false;
+    try {
+      docPip = await window.documentPictureInPicture.requestWindow({ width: 340, height: 270 });
+      const d = docPip.document;
+      d.body.style.cssText = "margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden";
+      canvas.style.width = "100%"; canvas.style.height = "100%"; canvas.style.objectFit = "contain";
+      d.body.append(canvas);
+      docPip.addEventListener("pagehide", () => { canvas.style.cssText = ""; stage.prepend(canvas); docPip = null; });
+      return true;
+    } catch (e) { docPip = null; return false; }
+  }
+  async function tryVideoPip() {
+    if (!document.pictureInPictureEnabled || !canvas.captureStream) return false;
+    try {
+      if (!video.srcObject) video.srcObject = canvas.captureStream(15);
+      await video.play();
+      await video.requestPictureInPicture();
+      return true;
+    } catch (e) { return false; }
+  }
+  pinBtn.addEventListener("click", async () => {
+    ensureAudio();
+    if (docPip || document.pictureInPictureElement) {
+      if (docPip) docPip.close();
+      if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+      return;
+    }
+    const ok = (await tryDocPip()) || (await tryVideoPip());
+    if (ok) { pinNote.textContent = "小視窗已開啟。可以拖到螢幕角落；再按一次按鈕可以收回。"; guide.hidden = true; }
+    else { pinNote.textContent = "這個瀏覽器不讓網頁自己置頂，請用下面的方法。"; guide.hidden = false; }
+  });
+
+  // ---------- live status from Claude ----------
+  const dot = document.getElementById("dot"), connText = document.getElementById("connText");
+  (async () => {
+    const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+    if (!db) {
+      connText.textContent = "未連線：請用 Chrome 登入 claude.ai 後重新整理";
+      return;
+    }
+    ackDoc = db.doc("pet/ack");
+    ackDoc.onSnapshot(snap => {
+      const a = snap.exists ? Number(snap.data().ackedAt || 0) : 0;
+      if (a > ackedAt) {
+        ackedAt = a;
+        try { localStorage.setItem("ackedAt", String(ackedAt)); } catch (e) {}
+        draw();
+      }
+    }, () => {});
+    db.doc("pet/status").onSnapshot(snap => {
+      dot.classList.add("on"); connText.textContent = "已連線，等 Claude 的消息";
+      const d = snap.exists ? snap.data() : DEFAULT;
+      applyStatus({ state: String(d.state || "idle"), message: String(d.message || ""), updatedAt: Number(d.updatedAt || 0) });
+      firstSnapshot = false;
+    }, () => {
+      dot.classList.remove("on"); connText.textContent = "連線中斷，請重新整理頁面";
+    });
+  })();
+})();
+</script>
