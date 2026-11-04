@@ -1,6 +1,7 @@
 name: build-windows
 
 # 推到 main 或在 Actions 頁面手動按 Run workflow 時，在雲端 Windows 打包 exe
+# 外部工具都鎖定在固定版本（後面註明版本號），避免工具被竄改時影響打包
 on:
   push:
     branches: [main]
@@ -12,15 +13,15 @@ jobs:
     permissions:
       contents: write   # 把 exe 推到 build-output 分支用
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: lts/*
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: './src-tauri -> target'
 
@@ -37,7 +38,7 @@ jobs:
           Copy-Item src-tauri/target/release/xiao-claude-pet.exe out/XiaoClaude.exe
           Get-ChildItem out | Format-Table Name, Length
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: XiaoClaude-exe
           path: out/
