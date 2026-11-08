@@ -9,5 +9,7 @@
   畫面可用 Chromium 開 src/index.html 測（攔截 api.github.com 回傳假的 status.json）。
 - **不要動 pet-status 分支的歷史**：它只放 status.json，是小 Claude 讀消息的地方。
 
-## 目前狀態：已停用
-老師要求關掉通知（2026-11）。除非老師重新要求，不要更新 pet-status 分支的 status.json，也不要更新網頁版小 Claude。
+## 通知規則（2026-11 老師調整）
+只在這些時候通知：預計超過 10 分鐘的工作「開始」(working) 與「做完」(done)；每次要問老師問題 (ask)。
+小工作不通知。詳細寫法在老師的 claude.ai 個人偏好設定裡；status.json 在 pet-status 分支，網頁版是
+https://claude.ai/artifact/GJyBbCrdMbLotJkQdzgWam（collection `pet`、doc `status`）。
